@@ -1,0 +1,76 @@
+{{ template "head" . }}
+
+{{ template "prom_right_table_head" }}
+  <th colspan="2">Disks</th>
+</tr>
+{{ range printf "diskio_io_time{job='node',instance='%s'}" .Params.instance | query | sortByLabel "name" }}
+  <th colspan="2">{{ .Labels.name }}</th>
+  <tr>
+    <td>Utilization</td>
+    <td>{{ template "prom_query_drilldown" (args (printf "irate(diskio_io_time{job='node',instance='%s',name='%s'}[5m]) / 1000 * 100" .Labels.instance .Labels.name) "%" "printf.1f") }}</td>
+  </tr>
+  <tr>
+    <td>Throughput</td>
+    <td>{{ template "prom_query_drilldown" (args (printf "irate(diskio_reads{job='node',instance='%s',name='%s'}[5m]) * 512 + irate(diskio_writes{job='node',instance='%s',name='%s'}[5m]) * 512" .Labels.instance .Labels.name .Labels.instance .Labels.name) "B/s" "humanize") }}</td>
+  </tr>
+  <tr>
+    <td>Avg Read Time</td>
+    <td>{{ template "prom_query_drilldown" (args (printf "irate(diskio_read_time{job='node',instance='%s',name='%s'}[5m]) / 1000 / irate(diskio_reads{job='node',instance='%s',name='%s'}[5m])" .Labels.instance .Labels.name .Labels.instance .Labels.name) "s" "humanize") }}</td>
+  </tr>
+  <tr>
+    <td>Avg Write Time</td>
+    <td>{{ template "prom_query_drilldown" (args (printf "irate(diskio_write_time{job='node',instance='%s',name='%s'}[5m]) / 1000 / irate(diskio_writes{job='node',instance='%s',name='%s'}[5m])" .Labels.instance .Labels.name .Labels.instance .Labels.name) "s" "humanize") }}</td>
+  </tr>
+{{ end }}
+  <th colspan="2">Filesystem Fullness</th>
+</tr>
+{{ define "roughlyNearZero" }}
+{{ if gt .1 . }}~0{{ else }}{{ printf "%.1f" . }}{{ end }}
+{{ end }}
+{{ range printf "disk_total{job='node',instance='%s'}" .Params.instance | query | sortByLabel "path" }}
+  <tr>
+    <td>{{ .Labels.path }}</td>
+    <td>{{ template "prom_query_drilldown" (args (printf "100 - disk_free{job='node',instance='%s',path='%s'} / disk_total{job='node'} * 100" .Labels.instance .Labels.path) "%" "roughlyNearZero") }}</td>
+  </tr>
+{{ end }}
+<tr>
+</tr>
+{{ template "prom_right_table_tail" }}
+
+{{ template "prom_content_head" . }}
+  <h1>Node Disk - {{ reReplaceAll "(.*?://)([^:/]+?)(:\\d+)?/.*" "$2" .Params.instance }}</h1>
+
+  <h3>Disk I/O Utilization</h3>
+  <div id="diskioGraph"></div>
+  <script>
+  new PromConsole.Graph({
+    node: document.querySelector("#diskioGraph"),
+    expr: [
+      "irate(diskio_io_time{job='node',instance='{{ .Params.instance }}',name!~'^(md\\\\d+$|dm-)'}[5m]) / 1000 * 100",
+    ],
+    min: 0,
+    name: '[[ name ]]',
+    yUnits: "%",
+    yAxisFormatter: PromConsole.NumberFormatter.humanizeNoSmallPrefix,
+    yHoverFormatter: PromConsole.NumberFormatter.humanizeNoSmallPrefix,
+    yTitle: 'Disk I/O Utilization'
+  })
+  </script>
+  <h3>Filesystem Usage</h3>
+  <div id="fsGraph"></div>
+  <script>
+  new PromConsole.Graph({
+    node: document.querySelector("#fsGraph"),
+    expr: "100 - disk_free{job='node',instance='{{ .Params.instance }}'} / disk_total{job='node'} * 100",
+    min: 0,
+    max: 100,
+    name: '[[ path ]]',
+    yUnits: "%",
+    yAxisFormatter: PromConsole.NumberFormatter.humanizeNoSmallPrefix,
+    yHoverFormatter: PromConsole.NumberFormatter.humanizeNoSmallPrefix,
+    yTitle: 'Filesystem Fullness'
+  })
+  </script>
+{{ template "prom_content_tail" . }}
+
+{{ template "tail" }}
